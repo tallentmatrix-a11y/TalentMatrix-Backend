@@ -3,62 +3,44 @@ const axios = require('axios');
 const router = express.Router();
 
 // ==================================================================
-// 1. DOWNLOAD PROXY ROUTE (UPDATED: 2-Step Fetch)
+// 1. DOWNLOAD HANDLER (FIXED: Uses Redirect to Bypass Blocking)
 // ==================================================================
 router.get('/download/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        console.log(`🔍 Resolving download link for Book ID: ${id}`);
+        console.log(`🔍 Finding download link for Book ID: ${id}`);
 
-        // STEP 1: Get Book Details to find the Real PDF URL
-        // We cannot guess the PDF link; we must ask the API for it.
-        const detailsResponse = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
+        // 1. Ask dBooks API for the file location
+        const response = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
         });
 
-        // Check if we got a valid download link
-        const downloadUrl = detailsResponse.data?.download_url;
+        const data = response.data;
         
-        if (!downloadUrl) {
-            console.error('❌ No download URL found in API response');
-            return res.status(404).send("Error: This book does not have a valid PDF link.");
-        }
-
-        console.log(`📥 Found PDF Link: ${downloadUrl}`);
-        console.log(`🚀 Starting Stream...`);
-
-        // STEP 2: Stream the Real PDF URL
-        const pdfResponse = await axios({
-            method: 'get',
-            url: downloadUrl,
-            responseType: 'stream',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Referer': 'https://www.dbooks.org/' // Tells server we came from their site
-            }
-        });
-
-        // Set headers so the browser knows it's a file download
-        res.setHeader('Content-Type', 'application/pdf');
-        // Clean the title to prevent header errors
-        const safeTitle = (detailsResponse.data.title || `book-${id}`).replace(/[^a-zA-Z0-9 ]/g, "");
-        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.pdf"`);
-
-        // Pipe the PDF stream to the user
-        pdfResponse.data.pipe(res);
+        // 2. Determine the best URL to send the user to
+        if (data && data.download_url) {
+            console.log(`✅ Redirecting user to PDF: ${data.download_url}`);
+            // Redirect the user's browser directly to the PDF.
+            // dBooks won't block the user (only servers).
+            return res.redirect(data.download_url);
+        } 
+        
+        // 3. Fallback: If no direct PDF link, send them to the book's page
+        console.log(`⚠️ No direct PDF found. Redirecting to book page.`);
+        return res.redirect(`https://www.dbooks.org/book/${id}`);
 
     } catch (error) {
-        console.error('❌ Download Proxy Error:', error.message);
-        // If the specific PDF server is down or blocks us
-        res.status(404).send("Error: Could not download file from source. The provider may be blocking requests.");
+        console.error('❌ Error finding link:', error.message);
+        // Final Fallback: Just send them to the main page for that ID
+        return res.redirect(`https://www.dbooks.org/book/${id}`);
     }
 });
 
 // ==================================================================
-// 2. SEARCH ROUTE (Unchanged logic, just ensure consistency)
+// 2. SEARCH ROUTE
 // ==================================================================
 router.get('/', async (req, res) => {
     const { query } = req.query;
@@ -88,7 +70,7 @@ router.get('/', async (req, res) => {
             authors: book.authors,
             image: book.image,
             url: book.url,
-            // Point to OUR backend proxy
+            // Keep pointing to OUR backend, which will now handle the redirect
             download: `/api/books/download/${book.id}` 
         }));
 
