@@ -189,5 +189,93 @@ router.put('/:id/resume', upload.single('resume'), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ---------------------------------------------------------
+// 5. UPDATE PROFILE IMAGE (Upload New & Delete Old)
+// Endpoint: PUT /api/signup/:id/profile-image
+// ---------------------------------------------------------
+router.put('/:id/profile-image', upload.single('profileImage'), async (req, res) => {
+  const filePath = req.file ? req.file.path : null;
+  const { id } = req.params;
 
+  // 1. Validation
+  if (!filePath) {
+    return res.status(400).json({ error: "No image file uploaded" });
+  }
+
+  try {
+    // 2. Fetch the user's CURRENT profile image URL to delete it later
+    const { data: userData, error: fetchError } = await supabase
+      .from('students')
+      .select('profile_image_url') // <--- MAKE SURE THIS MATCHES YOUR DB COLUMN NAME
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // 3. If an old image exists, DELETE it from 'profile_images' bucket
+    if (userData && userData.profile_image_url) {
+      const oldUrl = userData.profile_image_url;
+      
+      // Extract the path. Assumption: URL contains '/profile_images/'
+      const urlParts = oldUrl.split('/profile_images/');
+      
+      if (urlParts.length > 1) {
+        const oldPath = urlParts[1];
+        
+        const { error: deleteError } = await supabase.storage
+          .from('profile_images') // <--- MATCHES YOUR SCREENSHOT
+          .remove([oldPath]);
+          
+        if (deleteError) {
+           console.warn("Warning: Could not delete old image:", deleteError.message);
+        }
+      }
+    }
+
+    // 4. UPLOAD the NEW Image
+    const fileContent = fs.readFileSync(filePath);
+    const timestamp = Date.now();
+    // Create a unique name (e.g., user_123_profile_1699999.png)
+    const fileName = `${id}_profile_${timestamp}_${req.file.originalname}`; 
+
+    const { error: uploadError } = await supabase.storage
+      .from('profile_images') // <--- MATCHES YOUR SCREENSHOT
+      .upload(fileName, fileContent, {
+        contentType: req.file.mimetype, // Auto-detects (image/png, image/jpeg)
+        upsert: true 
+      });
+
+    if (uploadError) throw uploadError;
+
+    // 5. Get Public URL
+    const { data: urlData } = supabase.storage
+      .from('profile_images')
+      .getPublicUrl(fileName);
+
+    const newImageUrl = urlData.publicUrl;
+
+    // 6. UPDATE Database with new URL
+    const { data: updateData, error: dbUpdateError } = await supabase
+      .from('students')
+      .update({ profile_image_url: newImageUrl }) // <--- UPDATE COLUMN NAME IF NEEDED
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (dbUpdateError) throw dbUpdateError;
+
+    // Cleanup local file
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    res.json({ 
+      message: "Profile image updated successfully", 
+      imageUrl: newImageUrl 
+    });
+
+  } catch (err) {
+    console.error("Profile Image Update Error:", err);
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath); // Cleanup
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
