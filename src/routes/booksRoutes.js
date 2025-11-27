@@ -1,63 +1,100 @@
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio'); // New library for scraping
 const router = express.Router();
 
+// Helper: specific headers to look like a real browser
+const BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5'
+};
+
 // ==================================================================
-// 1. ACCESS HANDLER (The Fix)
+// 1. ACCESS HANDLER (Now with Auto-Scraping)
 // ==================================================================
 router.get('/access/:id', async (req, res) => {
     const { id } = req.params;
     const backupUrl = req.query.url; 
 
-    // 1. Force Browser to treat this as a Redirect, not a File
-    res.setHeader('Content-Type', 'text/html'); // Explicitly say "This is not a PDF"
+    // Force browser to treat this as a fresh redirect
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
     console.log(`🚀 Request for Book ID: ${id}`);
 
-    // 2. SAFETY CHECK: If ID is long (like your 1492072508), skip API entirely.
-    // The blue screen happens because the API hangs on these long IDs.
-    if (id.length > 8 && backupUrl) {
-         console.log(`⏩ Long ID detected. Redirecting immediately to backup.`);
-         return res.redirect(backupUrl);
-    }
-
     try {
-        // 3. Try to find a direct PDF link
-        const response = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 2000 // Short timeout
+        // 1. Ask dBooks API for the download location
+        const apiResponse = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
+            headers: BROWSER_HEADERS,
+            timeout: 3000
         });
 
-        const data = response.data;
-        
-        if (data && data.download_url) {
-            return res.redirect(data.download_url);
+        const initialLink = apiResponse.data?.download_url;
+
+        // 2. If we got a link, let's check if it's a DIRECT PDF or a Webpage
+        if (initialLink) {
+            // Case A: It's already a PDF (ends in .pdf) -> Redirect immediately
+            if (initialLink.toLowerCase().endsWith('.pdf')) {
+                console.log(`✅ Direct PDF detected: ${initialLink}`);
+                return res.redirect(initialLink);
+            }
+
+            // Case B: It's a Webpage (like it-ebooks.dev) -> We must DIG deeper
+            console.log(`🔍 Link is a webpage (${initialLink}). Scraping for PDF...`);
+            
+            try {
+                // Fetch the HTML of that landing page
+                const pageResponse = await axios.get(initialLink, { headers: BROWSER_HEADERS });
+                
+                // Load HTML into Cheerio
+                const $ = cheerio.load(pageResponse.data);
+                
+                // Look for any link that ends in .pdf
+                // This selector finds <a href="..."> where href ends with .pdf
+                let realPdfLink = $('a[href$=".pdf"]').attr('href');
+
+                // Sometimes links are relative (e.g., "/files/book.pdf"), so we fix them
+                if (realPdfLink && !realPdfLink.startsWith('http')) {
+                    const baseUrl = new URL(initialLink).origin;
+                    realPdfLink = `${baseUrl}${realPdfLink.startsWith('/') ? '' : '/'}${realPdfLink}`;
+                }
+
+                if (realPdfLink) {
+                    console.log(`🎉 Found Real PDF Link: ${realPdfLink}`);
+                    return res.redirect(realPdfLink);
+                } else {
+                    console.log(`⚠️ Scraped page but couldn't find a .pdf link. Using landing page.`);
+                    return res.redirect(initialLink);
+                }
+
+            } catch (scrapeError) {
+                console.error(`⚠️ Scraping failed: ${scrapeError.message}. Fallback to landing page.`);
+                return res.redirect(initialLink);
+            }
         } 
         
-        // 4. Fallback if no PDF found
+        // 3. Fallback if API returned nothing
+        console.log(`⚠️ No link in API. Using backup.`);
         if (backupUrl) return res.redirect(backupUrl);
         return res.redirect(`https://www.dbooks.org/book/${id}`);
 
     } catch (error) {
-        console.error('❌ Error or Timeout:', error.message);
-        // 5. Emergency Exit: Always redirect to the website
+        console.error('❌ Main Error:', error.message);
         if (backupUrl) return res.redirect(backupUrl);
         return res.redirect(`https://www.dbooks.org/book/${id}`);
     }
 });
 
 // ==================================================================
-// 2. SEARCH ROUTE
+// 2. SEARCH ROUTE (Unchanged)
 // ==================================================================
 router.get('/', async (req, res) => {
     const { query } = req.query;
-
     if (!query) return res.status(400).json({ error: 'Query parameter is required' });
 
     try {
         const response = await axios.get(`https://www.dbooks.org/api/search/${encodeURIComponent(query)}`, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            headers: BROWSER_HEADERS
         });
 
         if (response.data.status !== 'ok' || !response.data.books) {
@@ -72,12 +109,10 @@ router.get('/', async (req, res) => {
             authors: book.authors,
             image: book.image,
             url: book.url,
-            // Ensure this points to /access/
             download: `/api/books/access/${book.id}?url=${encodeURIComponent(book.url)}` 
         }));
 
         res.json({ status: 'ok', source: 'dBooks', books: formattedBooks });
-
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch books.' });
     }
