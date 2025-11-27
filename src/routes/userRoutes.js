@@ -343,4 +343,96 @@ router.delete('/skills/:id', async (req, res) => {
   }
 });
 
+// ==========================================
+//           PROJECTS ENDPOINTS
+// ==========================================
+
+// 9. ADD PROJECT
+// Endpoint: POST /api/signup/projects
+router.post('/projects', async (req, res) => {
+  const { student_id, title, description, link, tags } = req.body;
+
+  if (!student_id || !title) {
+    return res.status(400).json({ error: 'Student ID and Project Title are required' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .insert([{ student_id, title, description, link, tags }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    console.error("Add Project Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10. GET PROJECTS for a Student
+// Endpoint: GET /api/signup/projects/:student_id
+router.get('/projects/:student_id', async (req, res) => {
+  const { student_id } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('student_id', student_id)
+      .order('created_at', { ascending: false }); // Optional: sort by newest
+
+    if (error) throw error;
+    res.status(200).json(data);
+  } catch (error) {
+    console.error("Get Projects Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 11. DELETE PROJECT
+// Endpoint: DELETE /api/signup/projects/:id
+router.delete('/projects/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.status(200).json({ message: 'Project deleted successfully' });
+  } catch (error) {
+    console.error("Delete Project Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+//           APPLIED JOBS ENDPOINTS
+// ==========================================
+
+// 12. SAVE JOB
+// Endpoint: POST /api/signup/applied-jobs
+router.post('/applied-jobs', async (req, res) => {
+  // Ensure your frontend sends 'student_id' in the body!
+  const { student_id, job_url, job_title, company, status } = req.body;
+
+  try {
+    const { data, error } = await supabase
+      .from('applied_jobs')
+      .insert([{ student_id, job_url, job_title, company, status }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    console.error("Save Job Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
