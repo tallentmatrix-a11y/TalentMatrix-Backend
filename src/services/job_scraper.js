@@ -34,6 +34,7 @@ async function scrapeJobSkills(jobList) {
             "experience_summary": "Short summary of requirements"
         }
         `;
+        //modified this try block
         try {
             const response = await client.chat.completions.create({
                 model: 'sonar-pro',
