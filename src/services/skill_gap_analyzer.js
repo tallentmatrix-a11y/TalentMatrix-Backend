@@ -52,8 +52,19 @@ async function generateGapReport(userProfile, jobsWithSkills) {
             ]
         });
 
-        const cleanJson = response.choices[0].message.content.replace(/```json|```/g, '').trim();
-        return JSON.parse(cleanJson);
+        // Get raw content
+        const rawContent = response.choices[0].message.content;
+
+        // Regex to find the substring starting with '{' and ending with the last '}'
+        // [\s\S]* matches any character including newlines
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+
+        if (!jsonMatch) {
+            throw new Error("AI response did not contain a valid JSON object.");
+        }
+
+        // Parse only the matched JSON part
+        return JSON.parse(jsonMatch[0]);
 
     } catch (error) {
         console.error("❌ Step 4 Failed:", error.message);
