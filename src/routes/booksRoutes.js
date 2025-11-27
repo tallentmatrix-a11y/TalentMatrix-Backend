@@ -3,51 +3,45 @@ const axios = require('axios');
 const router = express.Router();
 
 // ==================================================================
-// 1. ACCESS HANDLER (Renamed to break browser cache)
+// 1. ACCESS HANDLER (The Fix)
 // ==================================================================
-// We changed '/download/:id' to '/access/:id' to fix the "Blue Screen"
 router.get('/access/:id', async (req, res) => {
     const { id } = req.params;
     const backupUrl = req.query.url; 
 
-    // Prevent browser caching for this redirect
+    // 1. Force Browser to treat this as a Redirect, not a File
+    res.setHeader('Content-Type', 'text/html'); // Explicitly say "This is not a PDF"
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
+    console.log(`🚀 Request for Book ID: ${id}`);
+
+    // 2. SAFETY CHECK: If ID is long (like your 1492072508), skip API entirely.
+    // The blue screen happens because the API hangs on these long IDs.
+    if (id.length > 8 && backupUrl) {
+         console.log(`⏩ Long ID detected. Redirecting immediately to backup.`);
+         return res.redirect(backupUrl);
+    }
+
     try {
-        console.log(`🔍 Resolving link for Book ID: ${id}`);
-
-        // OPTIMIZATION: If the ID is very long (like 3319324284), it's often not in the API.
-        // Skip straight to the website to make it faster.
-        if (id.length > 8 && backupUrl) {
-             console.log(`⏩ ID is long, skipping API check. Redirecting to backup.`);
-             return res.redirect(backupUrl);
-        }
-
-        // 1. Try to get a direct PDF link from dBooks API
+        // 3. Try to find a direct PDF link
         const response = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            },
-            timeout: 3000 // 3 second timeout
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 2000 // Short timeout
         });
 
         const data = response.data;
         
-        // 2. If API gives a PDF link, go there
         if (data && data.download_url) {
-            console.log(`✅ Redirecting to PDF: ${data.download_url}`);
             return res.redirect(data.download_url);
         } 
         
-        // 3. Fallback to the website page
-        console.log(`⚠️ No PDF in API. Using fallback.`);
+        // 4. Fallback if no PDF found
         if (backupUrl) return res.redirect(backupUrl);
         return res.redirect(`https://www.dbooks.org/book/${id}`);
 
     } catch (error) {
-        console.error('❌ Redirect Error:', error.message);
-        
-        // On any error, strictly redirect to the backup URL
+        console.error('❌ Error or Timeout:', error.message);
+        // 5. Emergency Exit: Always redirect to the website
         if (backupUrl) return res.redirect(backupUrl);
         return res.redirect(`https://www.dbooks.org/book/${id}`);
     }
@@ -62,8 +56,6 @@ router.get('/', async (req, res) => {
     if (!query) return res.status(400).json({ error: 'Query parameter is required' });
 
     try {
-        console.log(`📚 Fetching dBooks for: "${query}"`);
-
         const response = await axios.get(`https://www.dbooks.org/api/search/${encodeURIComponent(query)}`, {
             headers: { 'User-Agent': 'Mozilla/5.0' }
         });
@@ -80,14 +72,13 @@ router.get('/', async (req, res) => {
             authors: book.authors,
             image: book.image,
             url: book.url,
-            // CRITICAL UPDATE: Updated to point to '/api/books/access/'
+            // Ensure this points to /access/
             download: `/api/books/access/${book.id}?url=${encodeURIComponent(book.url)}` 
         }));
 
         res.json({ status: 'ok', source: 'dBooks', books: formattedBooks });
 
     } catch (error) {
-        console.error('❌ dBooks API Error:', error.message);
         res.status(500).json({ error: 'Failed to fetch books.' });
     }
 });
