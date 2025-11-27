@@ -126,11 +126,10 @@ router.put('/:id/resume', upload.single('resume'), async (req, res) => {
       const oldUrl = userData.resume_url;
       
       // Parse the path from the URL. 
-      // Assumption: URL structure is .../resumes/[filename]
       const urlParts = oldUrl.split('/resumes/'); 
       
       if (urlParts.length > 1) {
-        const oldPath = urlParts[1]; // Get the path after the bucket name
+        const oldPath = urlParts[1]; 
         
         const { error: deleteError } = await supabase.storage
           .from('resumes')
@@ -147,7 +146,7 @@ router.put('/:id/resume', upload.single('resume'), async (req, res) => {
     // 3. UPLOAD the NEW Resume
     const fileContent = fs.readFileSync(filePath);
     const timestamp = Date.now();
-    const fileName = `${id}_resume_${timestamp}.pdf`; // Unique name to prevent cache issues
+    const fileName = `${id}_resume_${timestamp}.pdf`; 
 
     const { error: uploadError } = await supabase.storage
       .from('resumes')
@@ -189,6 +188,7 @@ router.put('/:id/resume', upload.single('resume'), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ---------------------------------------------------------
 // 5. UPDATE PROFILE IMAGE (Upload New & Delete Old)
 // Endpoint: PUT /api/signup/:id/profile-image
@@ -206,7 +206,7 @@ router.put('/:id/profile-image', upload.single('profileImage'), async (req, res)
     // 2. Fetch the user's CURRENT profile image URL to delete it later
     const { data: userData, error: fetchError } = await supabase
       .from('students')
-      .select('profile_image_url') // <--- MAKE SURE THIS MATCHES YOUR DB COLUMN NAME
+      .select('profile_image_url') 
       .eq('id', id)
       .single();
 
@@ -216,14 +216,13 @@ router.put('/:id/profile-image', upload.single('profileImage'), async (req, res)
     if (userData && userData.profile_image_url) {
       const oldUrl = userData.profile_image_url;
       
-      // Extract the path. Assumption: URL contains '/profile_images/'
       const urlParts = oldUrl.split('/profile_images/');
       
       if (urlParts.length > 1) {
         const oldPath = urlParts[1];
         
         const { error: deleteError } = await supabase.storage
-          .from('profile_images') // <--- MATCHES YOUR SCREENSHOT
+          .from('profile_images') 
           .remove([oldPath]);
           
         if (deleteError) {
@@ -235,13 +234,12 @@ router.put('/:id/profile-image', upload.single('profileImage'), async (req, res)
     // 4. UPLOAD the NEW Image
     const fileContent = fs.readFileSync(filePath);
     const timestamp = Date.now();
-    // Create a unique name (e.g., user_123_profile_1699999.png)
     const fileName = `${id}_profile_${timestamp}_${req.file.originalname}`; 
 
     const { error: uploadError } = await supabase.storage
-      .from('profile_images') // <--- MATCHES YOUR SCREENSHOT
+      .from('profile_images') 
       .upload(fileName, fileContent, {
-        contentType: req.file.mimetype, // Auto-detects (image/png, image/jpeg)
+        contentType: req.file.mimetype, 
         upsert: true 
       });
 
@@ -257,7 +255,7 @@ router.put('/:id/profile-image', upload.single('profileImage'), async (req, res)
     // 6. UPDATE Database with new URL
     const { data: updateData, error: dbUpdateError } = await supabase
       .from('students')
-      .update({ profile_image_url: newImageUrl }) // <--- UPDATE COLUMN NAME IF NEEDED
+      .update({ profile_image_url: newImageUrl }) 
       .eq('id', id)
       .select()
       .single();
@@ -278,4 +276,71 @@ router.put('/:id/profile-image', upload.single('profileImage'), async (req, res)
     res.status(500).json({ error: err.message });
   }
 });
+
+// ==========================================
+//           SKILLS ENDPOINTS
+// ==========================================
+
+// 6. ADD SKILL
+// Endpoint: POST /api/signup/skills
+router.post('/skills', async (req, res) => {
+  const { student_id, skill_name, proficiency, tags } = req.body;
+
+  if (!student_id || !skill_name) {
+    return res.status(400).json({ error: 'Student ID and Skill Name are required' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('skills')
+      .insert([{ student_id, skill_name, proficiency, tags }])
+      .select();
+
+    if (error) throw error;
+    // Return the created skill (so frontend gets the new ID)
+    res.status(201).json(data[0]);
+  } catch (error) {
+    console.error("Add Skill Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 7. GET SKILLS for a Student
+// Endpoint: GET /api/signup/:id/skills
+router.get('/:id/skills', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from('skills')
+      .select('*')
+      .eq('student_id', id);
+
+    if (error) throw error;
+    res.status(200).json(data);
+  } catch (error) {
+    console.error("Get Skills Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 8. DELETE SKILL
+// Endpoint: DELETE /api/signup/skills/:id
+router.delete('/skills/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase
+      .from('skills')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.status(200).json({ message: 'Skill deleted successfully' });
+  } catch (error) {
+    console.error("Delete Skill Error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
