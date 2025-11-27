@@ -1,9 +1,9 @@
 const express = require('express');
 const axios = require('axios');
-const cheerio = require('cheerio'); // New library for scraping
+const cheerio = require('cheerio');
 const router = express.Router();
 
-// Helper: specific headers to look like a real browser
+// Browser headers to prevent blocking
 const BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -11,19 +11,19 @@ const BROWSER_HEADERS = {
 };
 
 // ==================================================================
-// 1. ACCESS HANDLER (Now with Auto-Scraping)
+// 1. ACCESS HANDLER (Enhanced Scraping)
 // ==================================================================
 router.get('/access/:id', async (req, res) => {
     const { id } = req.params;
     const backupUrl = req.query.url; 
 
-    // Force browser to treat this as a fresh redirect
+    // Prevent caching
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
     console.log(`🚀 Request for Book ID: ${id}`);
 
     try {
-        // 1. Ask dBooks API for the download location
+        // 1. Get the landing page URL from the API
         const apiResponse = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
             headers: BROWSER_HEADERS,
             timeout: 3000
@@ -31,50 +31,57 @@ router.get('/access/:id', async (req, res) => {
 
         const initialLink = apiResponse.data?.download_url;
 
-        // 2. If we got a link, let's check if it's a DIRECT PDF or a Webpage
+        // 2. If we have a link, inspect it
         if (initialLink) {
-            // Case A: It's already a PDF (ends in .pdf) -> Redirect immediately
+            // Case A: It is already a PDF
             if (initialLink.toLowerCase().endsWith('.pdf')) {
-                console.log(`✅ Direct PDF detected: ${initialLink}`);
                 return res.redirect(initialLink);
             }
 
-            // Case B: It's a Webpage (like it-ebooks.dev) -> We must DIG deeper
-            console.log(`🔍 Link is a webpage (${initialLink}). Scraping for PDF...`);
+            console.log(`🔍 Scraping page: ${initialLink}`);
             
             try {
-                // Fetch the HTML of that landing page
+                // Fetch the HTML of the landing page
                 const pageResponse = await axios.get(initialLink, { headers: BROWSER_HEADERS });
-                
-                // Load HTML into Cheerio
                 const $ = cheerio.load(pageResponse.data);
                 
-                // Look for any link that ends in .pdf
-                // This selector finds <a href="..."> where href ends with .pdf
-                let realPdfLink = $('a[href$=".pdf"]').attr('href');
+                let realPdfLink = null;
 
-                // Sometimes links are relative (e.g., "/files/book.pdf"), so we fix them
-                if (realPdfLink && !realPdfLink.startsWith('http')) {
-                    const baseUrl = new URL(initialLink).origin;
-                    realPdfLink = `${baseUrl}${realPdfLink.startsWith('/') ? '' : '/'}${realPdfLink}`;
+                // --- STRATEGY 1: Look for explicit .pdf links ---
+                realPdfLink = $('a[href$=".pdf"]').attr('href');
+
+                // --- STRATEGY 2: Look for dBooks specific "/d/" download links ---
+                // (This usually fixes the issue you are seeing)
+                if (!realPdfLink) {
+                    realPdfLink = $('a[href*="/d/"]').attr('href'); 
                 }
 
+                // --- STRATEGY 3: Look for the big "Free Download" button by text ---
+                if (!realPdfLink) {
+                    // Finds <a> tags containing the word "Download" (case insensitive)
+                    realPdfLink = $('a:contains("Download")').attr('href') || $('a:contains("download")').attr('href');
+                }
+
+                // Fix Relative Links (e.g., convert "/d/123" to "https://dbooks.org/d/123")
                 if (realPdfLink) {
-                    console.log(`🎉 Found Real PDF Link: ${realPdfLink}`);
+                    if (!realPdfLink.startsWith('http')) {
+                        const baseUrl = new URL(initialLink).origin;
+                        realPdfLink = `${baseUrl}${realPdfLink.startsWith('/') ? '' : '/'}${realPdfLink}`;
+                    }
+                    console.log(`🎉 Found Real Link: ${realPdfLink}`);
                     return res.redirect(realPdfLink);
-                } else {
-                    console.log(`⚠️ Scraped page but couldn't find a .pdf link. Using landing page.`);
-                    return res.redirect(initialLink);
-                }
+                } 
+
+                console.log(`⚠️ Scraper couldn't find a button. Fallback to page.`);
+                return res.redirect(initialLink);
 
             } catch (scrapeError) {
-                console.error(`⚠️ Scraping failed: ${scrapeError.message}. Fallback to landing page.`);
+                console.error(`⚠️ Scraping error. Fallback to page.`);
                 return res.redirect(initialLink);
             }
         } 
         
-        // 3. Fallback if API returned nothing
-        console.log(`⚠️ No link in API. Using backup.`);
+        // 3. Fallback
         if (backupUrl) return res.redirect(backupUrl);
         return res.redirect(`https://www.dbooks.org/book/${id}`);
 
