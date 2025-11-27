@@ -11,11 +11,14 @@ const BROWSER_HEADERS = {
 };
 
 // ==================================================================
-// 1. ACCESS HANDLER (Enhanced Scraping)
+// 1. ACCESS HANDLER (Aggressive Mode)
 // ==================================================================
 router.get('/access/:id', async (req, res) => {
     const { id } = req.params;
-    const backupUrl = req.query.url; 
+    
+    // 1. Construct the Direct Download Link manually
+    // Most dBooks downloads follow this exact pattern: https://www.dbooks.org/d/ID
+    const forcedDownloadLink = `https://www.dbooks.org/d/${id}`;
 
     // Prevent caching
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -23,72 +26,62 @@ router.get('/access/:id', async (req, res) => {
     console.log(`🚀 Request for Book ID: ${id}`);
 
     try {
-        // 1. Get the landing page URL from the API
+        // 2. Ask dBooks API for details (just to check if it exists)
         const apiResponse = await axios.get(`https://www.dbooks.org/api/book/${id}`, {
             headers: BROWSER_HEADERS,
-            timeout: 3000
+            timeout: 2500
         });
 
         const initialLink = apiResponse.data?.download_url;
 
-        // 2. If we have a link, inspect it
+        // 3. If we have a link, try to find a BETTER one via scraping
         if (initialLink) {
-            // Case A: It is already a PDF
+            // If it's already a PDF, go there
             if (initialLink.toLowerCase().endsWith('.pdf')) {
                 return res.redirect(initialLink);
             }
 
-            console.log(`🔍 Scraping page: ${initialLink}`);
+            console.log(`🔍 Scraping page for better link...`);
             
             try {
-                // Fetch the HTML of the landing page
                 const pageResponse = await axios.get(initialLink, { headers: BROWSER_HEADERS });
                 const $ = cheerio.load(pageResponse.data);
                 
                 let realPdfLink = null;
 
-                // --- STRATEGY 1: Look for explicit .pdf links ---
-                realPdfLink = $('a[href$=".pdf"]').attr('href');
-
-                // --- STRATEGY 2: Look for dBooks specific "/d/" download links ---
-                // (This usually fixes the issue you are seeing)
+                // STRATEGY: Look for the specific 'href' that contains /d/
+                // This is the link behind the "Free Download" button
+                realPdfLink = $('a[href*="/d/"]').attr('href'); 
+                
                 if (!realPdfLink) {
-                    realPdfLink = $('a[href*="/d/"]').attr('href'); 
+                     realPdfLink = $('a[href$=".pdf"]').attr('href');
                 }
 
-                // --- STRATEGY 3: Look for the big "Free Download" button by text ---
-                if (!realPdfLink) {
-                    // Finds <a> tags containing the word "Download" (case insensitive)
-                    realPdfLink = $('a:contains("Download")').attr('href') || $('a:contains("download")').attr('href');
-                }
-
-                // Fix Relative Links (e.g., convert "/d/123" to "https://dbooks.org/d/123")
+                // If found, clean it up and use it
                 if (realPdfLink) {
                     if (!realPdfLink.startsWith('http')) {
                         const baseUrl = new URL(initialLink).origin;
                         realPdfLink = `${baseUrl}${realPdfLink.startsWith('/') ? '' : '/'}${realPdfLink}`;
                     }
-                    console.log(`🎉 Found Real Link: ${realPdfLink}`);
+                    console.log(`🎉 Found Real Link via Scraper: ${realPdfLink}`);
                     return res.redirect(realPdfLink);
                 } 
 
-                console.log(`⚠️ Scraper couldn't find a button. Fallback to page.`);
-                return res.redirect(initialLink);
-
             } catch (scrapeError) {
-                console.error(`⚠️ Scraping error. Fallback to page.`);
-                return res.redirect(initialLink);
+                console.log(`⚠️ Scraping failed. Moving to Forced Download.`);
             }
         } 
         
-        // 3. Fallback
-        if (backupUrl) return res.redirect(backupUrl);
-        return res.redirect(`https://www.dbooks.org/book/${id}`);
+        // 4. AGGRESSIVE FALLBACK (The Fix)
+        // If scraping failed or found nothing, DO NOT send to the book page.
+        // Send them to the direct download endpoint instead.
+        console.log(`⚡ Scraper empty. Forcing Direct Download: ${forcedDownloadLink}`);
+        return res.redirect(forcedDownloadLink);
 
     } catch (error) {
-        console.error('❌ Main Error:', error.message);
-        if (backupUrl) return res.redirect(backupUrl);
-        return res.redirect(`https://www.dbooks.org/book/${id}`);
+        console.error('❌ Error:', error.message);
+        // Even on error, try the forced link. It's better than nothing.
+        return res.redirect(forcedDownloadLink);
     }
 });
 
@@ -116,7 +109,8 @@ router.get('/', async (req, res) => {
             authors: book.authors,
             image: book.image,
             url: book.url,
-            download: `/api/books/access/${book.id}?url=${encodeURIComponent(book.url)}` 
+            // Point to our aggressive access route
+            download: `/api/books/access/${book.id}` 
         }));
 
         res.json({ status: 'ok', source: 'dBooks', books: formattedBooks });
