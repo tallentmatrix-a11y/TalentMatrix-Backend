@@ -1,8 +1,7 @@
-// services/career_task.js
 require('dotenv').config();
 const pdfExtraction = require('pdf-extraction');
 const OpenAI = require('openai');
-const { fetchLeetCodeData } = require('./leetcode_service'); // <--- IMPORT SHARED SERVICE
+const { fetchLeetCodeData } = require('./leetcode_service'); 
 
 const client = new OpenAI({
     apiKey: process.env.PERPLEXITY_API_KEY,
@@ -19,6 +18,8 @@ async function extractResumeText(resumeUrl) {
         const arrayBuffer = await response.arrayBuffer();
         const pdfBuffer = Buffer.from(arrayBuffer);
         const data = await pdfExtraction(pdfBuffer);
+        
+        // Limit text length to prevent token limits
         return data.text.slice(0, 15000);
     } catch (error) {
         console.error(`❌ PDF Error: ${error.message}`);
@@ -58,8 +59,6 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
     ${leetcodeData ? `LEETCODE STATS: ${JSON.stringify(leetcodeData)}` : "LeetCode Data: Not linked"}
     `;
 
-    // ... inside runAIAnalysis function ...
-
     try {
         const response = await client.chat.completions.create({
             model: 'sonar-pro', 
@@ -69,28 +68,31 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
             ]
         });
 
-        // 👇 FIX: Use Regex to find the JSON object safely
-        const content = response.choices[0].message.content;
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const rawContent = response.choices[0].message.content;
+        
+        // --- ROBUST PARSING FIX ---
+        // Find the first '{' and the last '}' to extract just the JSON object
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
+            // Log the actual bad response so you can see it in the terminal
+            console.error("⚠️ AI Parsing Failed. Raw Output:", rawContent);
             throw new Error("AI response did not contain valid JSON.");
         }
 
         return JSON.parse(jsonMatch[0]);
 
     } catch (error) {
-        console.error("AI Analysis Error:", error);
+        console.error("❌ AI Analysis Error:", error.message);
         throw new Error("AI failed to process the resume.");
     }
-// ...
 }
 
 // --- EXPORT 1: Analyze Profile (URL + LeetCode) ---
 async function analyzeProfile(username, resumeUrl) {
     console.log(`\n🔹 Analyzing Profile for ${username}...`);
     
-    // FETCH DIRECTLY via Function Call (No localhost networking issues)
+    // Run fetch and extract in parallel
     const [leetcodeData, resumeText] = await Promise.all([
         fetchLeetCodeData(username), 
         extractResumeText(resumeUrl)

@@ -16,7 +16,6 @@ async function scrapeJobSkills(jobList) {
     for (const job of jobList) {
         console.log(`   -> Scraper: Analyzing ${job.position} at ${job.company}`);
 
-        // ... (Keep your existing systemPrompt here) ...
         const systemPrompt = `
         You are a Data Extraction API. You DO NOT converse. You ONLY output JSON.
 
@@ -34,7 +33,7 @@ async function scrapeJobSkills(jobList) {
             "experience_summary": "Short summary of requirements"
         }
         `;
-        //modified this try block
+
         try {
             const response = await client.chat.completions.create({
                 model: 'sonar-pro',
@@ -44,20 +43,15 @@ async function scrapeJobSkills(jobList) {
                 ]
             });
 
-            // 👇 FIX START: Robust Parsing Logic 👇
             const content = response.choices[0].message.content;
-            
-            // 1. Regex to find the JSON block { ... } ignoring everything else
             const jsonMatch = content.match(/\{[\s\S]*\}/);
 
             if (!jsonMatch) {
-                console.warn(`      ⚠️ No JSON found for ${job.company}. AI said: "${content.substring(0, 50)}..."`);
-                // Skip this job but don't crash the loop
-                continue; 
+                console.warn(`      ⚠️ No JSON found for ${job.company}. Output: "${content.substring(0, 50)}..."`);
+                continue; // Skip this job, don't crash
             }
 
             const data = JSON.parse(jsonMatch[0]);
-            // 👆 FIX END 👆
             
             results.push({ 
                 ...job, 
@@ -66,10 +60,10 @@ async function scrapeJobSkills(jobList) {
             });
 
         } catch (error) {
-            // Log error but keep going!
             console.error(`   -> Failed to analyze ${job.company}: ${error.message}`);
         }
         
+        // 1.5 second delay to be polite to the API
         await new Promise(r => setTimeout(r, 1500));
     }
 
