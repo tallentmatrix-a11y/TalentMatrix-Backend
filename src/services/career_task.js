@@ -12,17 +12,23 @@ const client = new OpenAI({
 async function extractResumeText(resumeUrl) {
     try {
         const cleanUrl = resumeUrl.trim();
-        console.log(`📄 Downloading resume from: '${cleanUrl}'...`);
+        
+        // 👇 DEBUG: Check if the key exists (Don't log the full key for security)
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (!serviceKey) {
+            throw new Error("❌ MISSING ENV VAR: SUPABASE_SERVICE_ROLE_KEY is undefined in .env file.");
+        }
+        console.log(`🔑 Service Key found (Length: ${serviceKey.length}). Downloading resume...`);
+        console.log(`📄 Downloading from: '${cleanUrl}'`);
 
-        // 👇 FIX: Use the Service Role Key to bypass all permission checks
         const response = await fetch(cleanUrl, {
             headers: {
-                // Ensure this key is in your .env file as SUPABASE_SERVICE_ROLE_KEY
-                'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` 
+                'Authorization': `Bearer ${serviceKey}` 
             }
         });
 
         if (!response.ok) {
+            // Log the status text to debug 401/404 issues
             throw new Error(`Failed to download. Status: ${response.status} ${response.statusText}`);
         }
         
