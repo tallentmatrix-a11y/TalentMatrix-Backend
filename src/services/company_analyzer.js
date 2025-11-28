@@ -1,57 +1,46 @@
 require('dotenv').config();
 const OpenAI = require('openai');
-const { analyzeProfile } = require('./career_task'); // Reuse profile analyzer
-const COMPANIES_LIST = require('../data/targetCompanies'); // Import your data
 
 const client = new OpenAI({
     apiKey: process.env.PERPLEXITY_API_KEY,
     baseURL: 'https://api.perplexity.ai'
 });
 
-async function analyzeCompanyFit(username, resumeUrl, targetCompanyName) {
-    console.log(`🚀 Analyzing fit for ${targetCompanyName}...`);
+async function generateGapReport(userProfile, jobsWithSkills) {
+    console.log(`\n🔹 STEP 4: Generating Skill Gap Report...`);
 
-    // 1. Get User Profile
-    const userProfile = await analyzeProfile(username, resumeUrl);
-    
-    // 2. Get Company Data from your local file
-    const targetCompany = COMPANIES_LIST.find(c => c.company === targetCompanyName);
-    
-    if (!targetCompany) {
-        throw new Error(`Company '${targetCompanyName}' not found in backend database.`);
-    }
-
-    // 3. AI Comparison
     const systemPrompt = `
-    You are a Senior Technical Recruiter at ${targetCompanyName}.
+    You are a Career Strategy AI.
     
-    INPUT:
-    1. Candidate Profile (Skills, LeetCode score)
-    2. Job Requirements (Skills for ${targetCompany.role})
+    INPUTS:
+    1. Candidate Profile (Verified Skills & LeetCode)
+    2. List of Real Jobs with Required Skills
     
     TASK:
-    Analyze the candidate specifically for THIS company.
-    Generate a structured roadmap to get hired.
+    Compare the candidate to EACH job. Calculate the skill gap.
     
-    OUTPUT JSON ONLY:
+    OUTPUT JSON ONLY (No Markdown):
     {
-        "match_percentage": "String (e.g. 75%)",
-        "missing_skills": ["Skill A", "Skill B"],
-        "advice": "Specific advice for cracking interviews at this company",
-        "roadmap": [
-            { "step": "Week 1-2", "action": "What to study" },
-            { "step": "Week 3-4", "action": "What to build/practice" },
-            { "step": "Final Prep", "action": "Mock interviews/System Design" }
+        "overall_analysis": "Brief summary of market fit",
+        "job_analyses": [
+            {
+                "company": "String",
+                "role": "String",
+                "job_url": "String", 
+                "match_percentage": "String (e.g., 85%)",
+                "missing_skills": ["Skill A", "Skill B"],
+                "action_plan": "Specific advice to bridge the gap"
+            }
         ]
     }
     `;
 
     const userMessage = `
-    CANDIDATE: 
+    CANDIDATE PROFILE: 
     ${JSON.stringify(userProfile)}
 
-    TARGET ROLE: 
-    ${JSON.stringify(targetCompany)}
+    REAL JOBS DATA: 
+    ${JSON.stringify(jobsWithSkills)}
     `;
 
     try {
@@ -63,24 +52,21 @@ async function analyzeCompanyFit(username, resumeUrl, targetCompanyName) {
             ]
         });
 
-        // Get raw content
         const rawContent = response.choices[0].message.content;
 
-        // Regex to find the substring starting with '{' and ending with the last '}'
-        // [\s\S]* matches any character including newlines
+        // 👇 FIX: Regex Extraction
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
             throw new Error("AI response did not contain a valid JSON object.");
         }
 
-        // Parse only the matched JSON part
         return JSON.parse(jsonMatch[0]);
 
     } catch (error) {
-        console.error("❌ Company Analysis Failed:", error);
-        throw new Error("AI processing failed.");
+        console.error("❌ Step 4 Failed:", error.message);
+        throw new Error("Failed to generate final report.");
     }
 }
 
-module.exports = { analyzeCompanyFit };
+module.exports = { generateGapReport };

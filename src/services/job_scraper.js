@@ -6,8 +6,6 @@ const client = new OpenAI({
     baseURL: 'https://api.perplexity.ai'
 });
 
-// ... inside services/job_scraper.js
-
 async function scrapeJobSkills(jobList) {
     console.log(`\n🔹 STEP 3: Analyzing detailed skill requirements for ${jobList.length} jobs...`);
     
@@ -21,12 +19,12 @@ async function scrapeJobSkills(jobList) {
 
         TASK:
         1. Attempt to access the Job URL: ${job.jobUrl}
-        2. If the URL is blocked or inaccessible (which is common for LinkedIn), DO NOT APOLOGIZE.
-        3. Instead, perform a SEARCH for the job role "${job.position}" at company "${job.company}" to infer the likely skills.
-        4. If no data is found, return generic skills for this role title.
+        2. If the URL is blocked or inaccessible, DO NOT APOLOGIZE.
+        3. Instead, perform a SEARCH for the job role "${job.position}" at company "${job.company}" to infer likely skills.
+        4. If no data is found, return generic skills for this role.
 
         OUTPUT FORMAT:
-        Strict JSON only. No "Here is the data", no markdown, no conversational filler.
+        Strict JSON only. No "Here is the data", no markdown.
 
         {
             "required_skills": ["Skill A", "Skill B", "Skill C"],
@@ -44,11 +42,13 @@ async function scrapeJobSkills(jobList) {
             });
 
             const content = response.choices[0].message.content;
+            
+            // 👇 FIX: Regex extraction + Graceful Skip
             const jsonMatch = content.match(/\{[\s\S]*\}/);
 
             if (!jsonMatch) {
                 console.warn(`      ⚠️ No JSON found for ${job.company}. Output: "${content.substring(0, 50)}..."`);
-                continue; // Skip this job, don't crash
+                continue; 
             }
 
             const data = JSON.parse(jsonMatch[0]);
@@ -63,7 +63,7 @@ async function scrapeJobSkills(jobList) {
             console.error(`   -> Failed to analyze ${job.company}: ${error.message}`);
         }
         
-        // 1.5 second delay to be polite to the API
+        // 1.5s delay to avoid rate limits
         await new Promise(r => setTimeout(r, 1500));
     }
 

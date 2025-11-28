@@ -19,7 +19,7 @@ async function generateGapReport(userProfile, jobsWithSkills) {
     TASK:
     Compare the candidate to EACH job. Calculate the skill gap.
     
-    OUTPUT JSON:
+    OUTPUT JSON ONLY (No Markdown):
     {
         "overall_analysis": "Brief summary of market fit",
         "job_analyses": [
@@ -52,18 +52,15 @@ async function generateGapReport(userProfile, jobsWithSkills) {
             ]
         });
 
-        // Get raw content
         const rawContent = response.choices[0].message.content;
 
-        // Regex to find the substring starting with '{' and ending with the last '}'
-        // [\s\S]* matches any character including newlines
+        // 👇 FIX: Regex Extraction
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
             throw new Error("AI response did not contain a valid JSON object.");
         }
 
-        // Parse only the matched JSON part
         return JSON.parse(jsonMatch[0]);
 
     } catch (error) {

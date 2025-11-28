@@ -11,9 +11,15 @@ const client = new OpenAI({
 // --- Helper: Extract Text from URL ---
 async function extractResumeText(resumeUrl) {
     try {
-        console.log(`📄 Downloading resume from: ${resumeUrl}...`);
-        const response = await fetch(resumeUrl);
-        if (!response.ok) throw new Error(`Failed to download. Status: ${response.status}`);
+        // 👇 FIX 1: Trim whitespace to prevent 404/401 errors
+        const cleanUrl = resumeUrl.trim();
+        
+        console.log(`📄 Downloading resume from: '${cleanUrl}'...`); // Quotes show if spaces exist
+
+        const response = await fetch(cleanUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to download. Status: ${response.status} ${response.statusText}`);
+        }
         
         const arrayBuffer = await response.arrayBuffer();
         const pdfBuffer = Buffer.from(arrayBuffer);
@@ -70,12 +76,10 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
 
         const rawContent = response.choices[0].message.content;
         
-        // --- ROBUST PARSING FIX ---
-        // Find the first '{' and the last '}' to extract just the JSON object
+        // 👇 FIX 2: Robust Regex JSON Extraction
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
-            // Log the actual bad response so you can see it in the terminal
             console.error("⚠️ AI Parsing Failed. Raw Output:", rawContent);
             throw new Error("AI response did not contain valid JSON.");
         }
@@ -92,7 +96,6 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
 async function analyzeProfile(username, resumeUrl) {
     console.log(`\n🔹 Analyzing Profile for ${username}...`);
     
-    // Run fetch and extract in parallel
     const [leetcodeData, resumeText] = await Promise.all([
         fetchLeetCodeData(username), 
         extractResumeText(resumeUrl)
