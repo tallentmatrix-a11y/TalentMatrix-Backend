@@ -58,6 +58,8 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
     ${leetcodeData ? `LEETCODE STATS: ${JSON.stringify(leetcodeData)}` : "LeetCode Data: Not linked"}
     `;
 
+    // ... inside runAIAnalysis function ...
+
     try {
         const response = await client.chat.completions.create({
             model: 'sonar-pro', 
@@ -67,23 +69,21 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
             ]
         });
 
-        // Get raw content
-        const rawContent = response.choices[0].message.content;
-
-        // Regex to find the substring starting with '{' and ending with the last '}'
-        // [\s\S]* matches any character including newlines
-        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        // 👇 FIX: Use Regex to find the JSON object safely
+        const content = response.choices[0].message.content;
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
-            throw new Error("AI response did not contain a valid JSON object.");
+            throw new Error("AI response did not contain valid JSON.");
         }
 
-        // Parse only the matched JSON part
         return JSON.parse(jsonMatch[0]);
+
     } catch (error) {
         console.error("AI Analysis Error:", error);
         throw new Error("AI failed to process the resume.");
     }
+// ...
 }
 
 // --- EXPORT 1: Analyze Profile (URL + LeetCode) ---

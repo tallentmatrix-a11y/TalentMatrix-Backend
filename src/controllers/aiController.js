@@ -125,8 +125,15 @@ exports.runTargetCompanyAnalysis = async (req, res) => {
             ]
         });
 
-        const cleanJson = response.choices[0].message.content.replace(/```json|```/g, '').trim();
-        const analysisData = JSON.parse(cleanJson);
+        // 👇 FIX: Apply the same Regex fix here
+        const content = response.choices[0].message.content;
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+
+        if (!jsonMatch) {
+            throw new Error("AI failed to generate company analysis JSON.");
+        }
+
+        const analysisData = JSON.parse(jsonMatch[0]);
 
         res.json({
             success: true,
