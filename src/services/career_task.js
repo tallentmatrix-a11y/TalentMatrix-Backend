@@ -11,12 +11,17 @@ const client = new OpenAI({
 // --- Helper: Extract Text from URL ---
 async function extractResumeText(resumeUrl) {
     try {
-        // 👇 FIX 1: Trim whitespace to prevent 404/401 errors
         const cleanUrl = resumeUrl.trim();
-        
-        console.log(`📄 Downloading resume from: '${cleanUrl}'...`); // Quotes show if spaces exist
+        console.log(`📄 Downloading resume from: '${cleanUrl}'...`);
 
-        const response = await fetch(cleanUrl);
+        // 👇 FIX: Use the Service Role Key to bypass all permission checks
+        const response = await fetch(cleanUrl, {
+            headers: {
+                // Ensure this key is in your .env file as SUPABASE_SERVICE_ROLE_KEY
+                'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` 
+            }
+        });
+
         if (!response.ok) {
             throw new Error(`Failed to download. Status: ${response.status} ${response.statusText}`);
         }
@@ -24,8 +29,6 @@ async function extractResumeText(resumeUrl) {
         const arrayBuffer = await response.arrayBuffer();
         const pdfBuffer = Buffer.from(arrayBuffer);
         const data = await pdfExtraction(pdfBuffer);
-        
-        // Limit text length to prevent token limits
         return data.text.slice(0, 15000);
     } catch (error) {
         console.error(`❌ PDF Error: ${error.message}`);
