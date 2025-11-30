@@ -15,20 +15,17 @@ async function scrapeJobSkills(jobList) {
         console.log(`   -> Scraper: Analyzing ${job.position} at ${job.company}`);
 
         const systemPrompt = `
-        You are a Data Extraction API. You DO NOT converse. You ONLY output JSON.
-
+        You are a Job Data Extractor.
+        
         TASK:
-        1. Attempt to access the Job URL: ${job.jobUrl}
-        2. If the URL is blocked or inaccessible, DO NOT APOLOGIZE.
-        3. Instead, perform a SEARCH for the job role "${job.position}" at company "${job.company}" to infer likely skills.
-        4. If no data is found, return generic skills for this role.
-
-        OUTPUT FORMAT:
-        Strict JSON only. No "Here is the data", no markdown.
-
+        1. Access this Job URL: ${job.jobUrl}
+        2. If blocked, SEARCH for "${job.position} at ${job.company} requirements".
+        3. Extract the list of specific technical skills required.
+        
+        OUTPUT JSON ONLY:
         {
             "required_skills": ["Skill A", "Skill B", "Skill C"],
-            "experience_summary": "Short summary of requirements"
+            "experience_summary": "Short string"
         }
         `;
 
@@ -41,21 +38,13 @@ async function scrapeJobSkills(jobList) {
                 ]
             });
 
-            const content = response.choices[0].message.content;
+            const cleanJson = response.choices[0].message.content.replace(/```json|```/g, '').trim();
+            const data = JSON.parse(cleanJson);
             
-            // 👇 FIX: Regex extraction + Graceful Skip
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-
-            if (!jsonMatch) {
-                console.warn(`      ⚠️ No JSON found for ${job.company}. Output: "${content.substring(0, 50)}..."`);
-                continue; 
-            }
-
-            const data = JSON.parse(jsonMatch[0]);
-            
+            // Merge the new skill data with the original job info
             results.push({ 
                 ...job, 
-                tech_stack: data.required_skills, 
+                tech_stack: data.required_skills, // Map to standardized name
                 experience_summary: data.experience_summary 
             });
 
@@ -63,7 +52,7 @@ async function scrapeJobSkills(jobList) {
             console.error(`   -> Failed to analyze ${job.company}: ${error.message}`);
         }
         
-        // 1.5s delay to avoid rate limits
+        // Delay to prevent rate limits
         await new Promise(r => setTimeout(r, 1500));
     }
 

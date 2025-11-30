@@ -1,7 +1,8 @@
+// services/career_task.js
 require('dotenv').config();
 const pdfExtraction = require('pdf-extraction');
 const OpenAI = require('openai');
-const { fetchLeetCodeData } = require('./leetcode_service'); 
+const { fetchLeetCodeData } = require('./leetcode_service'); // <--- IMPORT SHARED SERVICE
 
 const client = new OpenAI({
     apiKey: process.env.PERPLEXITY_API_KEY,
@@ -11,26 +12,9 @@ const client = new OpenAI({
 // --- Helper: Extract Text from URL ---
 async function extractResumeText(resumeUrl) {
     try {
-        const cleanUrl = resumeUrl.trim();
-        
-        // 👇 DEBUG: Check if the key exists (Don't log the full key for security)
-        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        if (!serviceKey) {
-            throw new Error("❌ MISSING ENV VAR: SUPABASE_SERVICE_ROLE_KEY is undefined in .env file.");
-        }
-        console.log(`🔑 Service Key found (Length: ${serviceKey.length}). Downloading resume...`);
-        console.log(`📄 Downloading from: '${cleanUrl}'`);
-
-        const response = await fetch(cleanUrl, {
-            headers: {
-                'Authorization': `Bearer ${serviceKey}` 
-            }
-        });
-
-        if (!response.ok) {
-            // Log the status text to debug 401/404 issues
-            throw new Error(`Failed to download. Status: ${response.status} ${response.statusText}`);
-        }
+        console.log(`📄 Downloading resume from: ${resumeUrl}...`);
+        const response = await fetch(resumeUrl);
+        if (!response.ok) throw new Error(`Failed to download. Status: ${response.status}`);
         
         const arrayBuffer = await response.arrayBuffer();
         const pdfBuffer = Buffer.from(arrayBuffer);
@@ -83,20 +67,10 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
             ]
         });
 
-        const rawContent = response.choices[0].message.content;
-        
-        // 👇 FIX 2: Robust Regex JSON Extraction
-        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-
-        if (!jsonMatch) {
-            console.error("⚠️ AI Parsing Failed. Raw Output:", rawContent);
-            throw new Error("AI response did not contain valid JSON.");
-        }
-
-        return JSON.parse(jsonMatch[0]);
-
+        const cleanJson = response.choices[0].message.content.replace(/```json|```/g, '').trim();
+        return JSON.parse(cleanJson);
     } catch (error) {
-        console.error("❌ AI Analysis Error:", error.message);
+        console.error("AI Analysis Error:", error);
         throw new Error("AI failed to process the resume.");
     }
 }
@@ -105,6 +79,7 @@ async function runAIAnalysis(resumeText, leetcodeData = null) {
 async function analyzeProfile(username, resumeUrl) {
     console.log(`\n🔹 Analyzing Profile for ${username}...`);
     
+    // FETCH DIRECTLY via Function Call (No localhost networking issues)
     const [leetcodeData, resumeText] = await Promise.all([
         fetchLeetCodeData(username), 
         extractResumeText(resumeUrl)

@@ -19,7 +19,7 @@ async function generateGapReport(userProfile, jobsWithSkills) {
     TASK:
     Compare the candidate to EACH job. Calculate the skill gap.
     
-    OUTPUT JSON ONLY (No Markdown):
+    OUTPUT JSON:
     {
         "overall_analysis": "Brief summary of market fit",
         "job_analyses": [
@@ -52,16 +52,8 @@ async function generateGapReport(userProfile, jobsWithSkills) {
             ]
         });
 
-        const rawContent = response.choices[0].message.content;
-
-        // 👇 FIX: Regex Extraction
-        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-
-        if (!jsonMatch) {
-            throw new Error("AI response did not contain a valid JSON object.");
-        }
-
-        return JSON.parse(jsonMatch[0]);
+        const cleanJson = response.choices[0].message.content.replace(/```json|```/g, '').trim();
+        return JSON.parse(cleanJson);
 
     } catch (error) {
         console.error("❌ Step 4 Failed:", error.message);
